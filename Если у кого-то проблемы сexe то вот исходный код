@@ -1,0 +1,254 @@
+import pyautogui
+import tkinter as tk
+from tkinter import messagebox
+import threading
+import time
+
+
+
+class SkinSellerApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Автопродажа скинов Standoff 2")
+        self.root.geometry("500x600")
+        self.root.resizable(False, False)
+        self.root.attributes("-topmost", True)  # Окно поверх всех
+
+        # Флаг работы скрипта
+        self.running = False
+        self.thread = None
+
+        # Текущая кнопка "Получить" в процессе отсчёта
+        self.active_get_btn = None
+        self.countdown = 0
+
+        # Создание интерфейса
+        self.create_widgets()
+
+        # Привязываем нажатие F5 к остановке скрипта
+        self.root.bind("<F5>", self.on_f5_press)
+        
+        # Привязываем нажатие \ к выходу из приложения (исправленный вариант)
+        self.root.bind("\\", self.on_backslash_press)
+
+    def on_backslash_press(self, event=None):
+        """Обработчик нажатия клавиши \ — завершает приложение"""
+        self.exit_app()
+
+    # Остальные методы остаются без изменений...
+
+
+    def create_widgets(self):
+        # Заголовок
+        tk.Label(self.root, text="Автопродажа скинов", font=("Arial", 16, "bold")).pack(pady=10)
+
+        # Поля для координат
+        fields = [
+            ("А: Кнопка «Продать скин»", "btn_sell"),
+            ("Б: Кнопка выбора скина", "btn_select"),
+            ("В: Кнопка подтверждения продажи", "btn_confirm"),
+            ("Г: Кнопка ввода цены", "btn_price"),
+            ("Д: Цена (руб.)", "price"),
+            ("Е: Кнопка подтверждения цены", "btn_submit")
+        ]
+
+        self.entries = {}
+        for label_text, key in fields:
+            frame = tk.Frame(self.root)
+            frame.pack(fill="x", padx=20, pady=5)
+
+            tk.Label(frame, text=label_text, width=20, anchor="w").pack(side="left")
+
+            if key == "price":
+                entry = tk.Entry(frame, width=15)
+            else:
+                entry = tk.Entry(frame, width=10)
+                btn = tk.Button(frame, text="Получить", command=lambda k=key: self.start_get_coords(k))
+                btn.pack(side="right", padx=5)
+
+            entry.pack(side="right", fill="x", expand=True)
+            self.entries[key] = entry
+
+        # Кнопки управления
+        btn_frame = tk.Frame(self.root)
+        btn_frame.pack(pady=20)
+
+        self.start_btn = tk.Button(
+            btn_frame,
+            text="Запустить",
+            command=self.start_script,
+            bg="green",
+            fg="white",
+            width=12
+        )
+        self.start_btn.pack(side="left", padx=5)
+
+        self.stop_btn = tk.Button(
+            btn_frame,
+            text="Остановить",
+            command=self.stop_script,
+            bg="red",
+            fg="white",
+            width=12,
+            state="disabled"
+        )
+        self.stop_btn.pack(side="left", padx=5)
+
+        self.exit_btn = tk.Button(
+            btn_frame,
+            text="Выход",
+            command=self.exit_app,
+            width=12
+        )
+        self.exit_btn.pack(side="left", padx=5)
+
+        # Статус
+        self.status_label = tk.Label(self.root, text="Ожидание...", fg="blue")
+        self.status_label.pack(pady=10)
+
+    def on_f5_press(self, event=None):
+        """Обработчик нажатия клавиши F5 — останавливает скрипт"""
+        if self.running:
+            self.stop_script()
+            self.status_label.config(text="Скрипт остановлен (F5)", fg="red")
+
+    def start_get_coords(self, key):
+        """Запустить 3‑секундный отсчёт перед получением координат"""
+        # Находим кнопку "Получить" для данного поля
+        for widget in self.root.winfo_children():
+            if isinstance(widget, tk.Frame):
+                for child in widget.winfo_children():
+                    if isinstance(child, tk.Button) and child['text'] == "Получить":
+                        for w in widget.winfo_children():
+                            if isinstance(w, tk.Entry) and w == self.entries[key]:
+                                self.active_get_btn = child
+                                self.active_get_btn.config(text="Ожидание... (3)", state="disabled")
+                                break
+
+        # Запускаем отсчёт
+        self.countdown = 3
+        self.update_countdown(key)
+
+    def update_countdown(self, key):
+        """Обновляет текст кнопки и запускает следующий шаг отсчёта"""
+        if self.countdown > 0:
+            self.active_get_btn.config(text=f"Ожидание... ({self.countdown})")
+            self.countdown -= 1
+            # Запланируем следующий вызов через 1 секунду
+            self.root.after(1000, lambda: self.update_countdown(key))
+        else:
+            # Отсчёт закончен — получаем координаты
+            self.get_coords(key)
+            # Возвращаем кнопку в исходное состояние
+            self.active_get_btn.config(text="Получить", state="normal")
+
+    def get_coords(self, key):
+        """Получить текущие координаты курсора и вставить в поле"""
+        x, y = pyautogui.position()
+        self.entries[key].delete(0, tk.END)
+        self.entries[key].insert(0, f"{x},{y}")
+        self.status_label.config(text=f"Координаты {key} сохранены: {x},{y}", fg="green")
+
+    def start_script(self):
+        """Запустить скрипт продажи"""
+        if self.running:
+            return
+
+        # Проверка заполнения полей
+        for key, entry in self.entries.items():
+            if not entry.get().strip():
+                messagebox.showerror("Ошибка", f"Заполните поле: {key}")
+                return
+
+        # Дополнительная проверка координат
+        coord_keys = ["btn_sell", "btn_select", "btn_confirm", "btn_price", "btn_submit"]
+        for key in coord_keys:
+            try:
+                self.parse_coords(self.entries[key].get())
+            except ValueError as e:
+                messagebox.showerror("Ошибка", f"Некорректные координаты в поле {key}: {e}")
+                return
+
+        self.running = True
+        self.start_btn.config(state="disabled")
+        self.stop_btn.config(state="normal")
+        self.status_label.config(text="Скрипт запущен...", fg="orange")
+
+        # Запуск в отдельном потоке
+        self.thread = threading.Thread(target=self.run_automation)
+        self.thread.start()
+
+    def stop_script(self):
+        """Остановить скрипт"""
+        self.running = False
+        self.start_btn.config(state="normal")
+        self.stop_btn.config(state="disabled")
+        self.status_label.config(text="Скрипт остановлен", fg="red")
+
+    def exit_app(self):
+        """Выход из приложения"""
+        self.stop_script()
+        self.root.destroy()
+
+    def run_automation(self):
+        """Основная логика автоматизации"""
+        try:
+            # Получение значений
+            btn_sell = self.parse_coords(self.entries["btn_sell"].get())
+            btn_select = self.parse_coords(self.entries["btn_select"].get())
+            btn_confirm = self.parse_coords(self.entries["btn_confirm"].get())
+            btn_price = self.parse_coords(self.entries["btn_price"].get())
+            price = self.entries["price"].get()
+            btn_submit = self.parse_coords(self.entries["btn_submit"].get())
+
+            while self.running:
+                # 1. Нажать "Продать скин"
+                pyautogui.click(btn_sell)
+                time.sleep(0.3)
+
+                # 2. Выбрать скин
+                pyautogui.click(btn_select)
+                time.sleep(0.3)
+
+                # 3. Подтвердить выбор
+                pyautogui.click(btn_confirm)
+                time.sleep(0.3)
+
+                # 4. Открыть поле ввода цены
+                pyautogui.click(btn_price)
+                time.sleep(0.3)
+
+                # 5. Ввести цену
+                pyautogui.write(price)
+                time.sleep(0.3)
+
+                # 6. Подтвердить цену
+                pyautogui.click(btn_submit)
+                time.sleep(0.3)  # Ожидание завершения операции
+
+                self.status_label.config(text='Скин продан! Повторяю...', fg='green')
+
+        except Exception as e:
+            self.status_label.config(text=f'Ошибка: {str(e)}', fg='red')
+        finally:
+            self.running = False
+            self.start_btn.config(state="normal")
+            self.stop_btn.config(state="disabled")
+
+    def parse_coords(self, coords_str):
+        """Преобразовать строку 'x,y' в кортеж (x, y)"""
+        try:
+            x, y = map(int, coords_str.split(','))
+            return (x, y)
+        except ValueError:
+            raise ValueError(f"Некорректные координаты: {coords_str}. Формат: x,y (целые числа)")
+        except Exception:
+            raise ValueError(f"Некорректный формат координат: {coords_str}. Ожидался формат x,y")
+
+
+
+# Запуск приложения
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = SkinSellerApp(root)
+    root.mainloop()
